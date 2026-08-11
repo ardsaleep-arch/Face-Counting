@@ -133,6 +133,7 @@
       <input type="file" id="fileInput" accept="image/*,.heic,.heif">
       <button id="undoBtn" disabled>ย้อนกลับ (Undo)</button>
       <button id="resetBtn" class="danger" disabled>ล้างทั้งหมด (Reset)</button>
+      <button id="exportBtn" disabled>ส่งออกรูปภาพ (PNG)</button>
       <div class="count-badge">จำนวนใบหน้า: <span id="countValue">0</span></div>
     </div>
 
@@ -150,6 +151,7 @@
   const fileInput = document.getElementById('fileInput');
   const undoBtn = document.getElementById('undoBtn');
   const resetBtn = document.getElementById('resetBtn');
+  const exportBtn = document.getElementById('exportBtn');
   const countValue = document.getElementById('countValue');
   const statusEl = document.getElementById('status');
   const canvasWrap = document.getElementById('canvasWrap');
@@ -158,6 +160,7 @@
 
   let img = null;
   let points = [];
+  let loadedAt = null;
 
   function setStatus(msg, kind) {
     statusEl.textContent = msg || '';
@@ -168,6 +171,36 @@
     countValue.textContent = points.length;
     undoBtn.disabled = points.length === 0;
     resetBtn.disabled = points.length === 0;
+    exportBtn.disabled = !img;
+  }
+
+  function pad(n) {
+    return String(n).padStart(2, '0');
+  }
+
+  function formatStamp(date) {
+    return pad(date.getDate()) + '/' + pad(date.getMonth() + 1) + '/' + date.getFullYear() +
+      ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  }
+
+  function drawDateStamp() {
+    if (!loadedAt) return;
+    const text = formatStamp(loadedAt);
+    const paddingX = 10, paddingY = 6;
+    ctx.font = 'bold 16px sans-serif';
+    const textWidth = ctx.measureText(text).width;
+    const boxW = textWidth + paddingX * 2;
+    const boxH = 16 + paddingY * 2;
+    const x = canvas.width - boxW - 12;
+    const y = canvas.height - boxH - 12;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(x, y, boxW, boxH);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(text, x + paddingX, y + paddingY);
   }
 
   function redraw() {
@@ -191,6 +224,7 @@
       ctx.fillText(String(i + 1), p.x, p.y);
     });
 
+    drawDateStamp();
     updateCount();
   }
 
@@ -200,6 +234,7 @@
     image.onload = function () {
       img = image;
       points = [];
+      loadedAt = new Date();
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
       canvas.style.display = 'block';
@@ -299,6 +334,21 @@
   resetBtn.addEventListener('click', function () {
     points = [];
     redraw();
+  });
+
+  exportBtn.addEventListener('click', function () {
+    if (!img) return;
+    const stamp = loadedAt || new Date();
+    const filename = 'face-count-' + stamp.getFullYear() + pad(stamp.getMonth() + 1) + pad(stamp.getDate()) +
+      '-' + pad(stamp.getHours()) + pad(stamp.getMinutes()) + pad(stamp.getSeconds()) + '.png';
+
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setStatus('ส่งออกรูปภาพสำเร็จ', 'ok');
   });
 })();
 </script>
