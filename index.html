@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>นับจำนวนใบหน้า</title>
+<script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2e38;
+    --text: #e8eaf0;
+    --muted: #9aa0ac;
+    --accent: #4f8cff;
+    --accent-hover: #3d78e8;
+    --danger: #e5484d;
+    --danger-hover: #cc3f43;
+    --ok: #2fb767;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Noto Sans Thai", Tahoma, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 60px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.subtitle { color: var(--muted); margin: 0 0 20px; font-size: 0.9rem; text-align: center; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    width: 100%;
+    max-width: 900px;
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  input[type="file"] {
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { background: #3a3f4b; color: var(--muted); cursor: not-allowed; }
+
+  button.danger { background: var(--danger); }
+  button.danger:hover { background: var(--danger-hover); }
+
+  .count-badge {
+    margin-left: auto;
+    background: #1e2430;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .count-badge span { color: var(--accent); font-size: 1.2rem; }
+
+  .status {
+    min-height: 1.2em;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+
+  .canvas-wrap {
+    width: 100%;
+    overflow: auto;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: #0b0d12;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 240px;
+  }
+
+  .canvas-wrap.empty::before {
+    content: "อัปโหลดรูปภาพเพื่อเริ่มนับ";
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  canvas {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    cursor: crosshair;
+  }
+
+  .hint {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+  <h1>นับจำนวนใบหน้า</h1>
+  <p class="subtitle">อัปโหลดรูปภาพ แล้วคลิกที่ใบหน้าแต่ละคนเพื่อนับ &mdash; คลิกขวาที่จุดเพื่อลบ</p>
+
+  <div class="panel">
+    <div class="controls">
+      <input type="file" id="fileInput" accept="image/*,.heic,.heif">
+      <button id="undoBtn" disabled>ย้อนกลับ (Undo)</button>
+      <button id="resetBtn" class="danger" disabled>ล้างทั้งหมด (Reset)</button>
+      <div class="count-badge">จำนวนใบหน้า: <span id="countValue">0</span></div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="canvas-wrap empty" id="canvasWrap">
+      <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+
+    <div class="hint">คลิกซ้าย = เพิ่มจุดนับใบหน้า &nbsp;|&nbsp; คลิกขวา = ลบจุดที่ใกล้ที่สุด &nbsp;|&nbsp; รองรับไฟล์ JPG, PNG, HEIC/HEIF</div>
+  </div>
+
+<script>
+(function () {
+  const fileInput = document.getElementById('fileInput');
+  const undoBtn = document.getElementById('undoBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const countValue = document.getElementById('countValue');
+  const statusEl = document.getElementById('status');
+  const canvasWrap = document.getElementById('canvasWrap');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let img = null;
+  let points = [];
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg || '';
+    statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function updateCount() {
+    countValue.textContent = points.length;
+    undoBtn.disabled = points.length === 0;
+    resetBtn.disabled = points.length === 0;
+  }
+
+  function redraw() {
+    if (!img) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    points.forEach((p, i) => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(79, 140, 255, 0.35)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#4f8cff';
+      ctx.stroke();
+
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), p.x, p.y);
+    });
+
+    updateCount();
+  }
+
+  function loadImageFromBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = function () {
+      img = image;
+      points = [];
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      canvas.style.display = 'block';
+      canvasWrap.classList.remove('empty');
+      redraw();
+      URL.revokeObjectURL(url);
+      setStatus('โหลดรูปภาพสำเร็จ คลิกที่ใบหน้าเพื่อเริ่มนับ', 'ok');
+    };
+    image.onerror = function () {
+      URL.revokeObjectURL(url);
+      setStatus('ไม่สามารถโหลดรูปภาพนี้ได้', 'error');
+    };
+    image.src = url;
+  }
+
+  function isHeic(file) {
+    const name = (file.name || '').toLowerCase();
+    const type = (file.type || '').toLowerCase();
+    return type === 'image/heic' || type === 'image/heif' ||
+           name.endsWith('.heic') || name.endsWith('.heif');
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/') && !isHeic(file)) {
+      setStatus('กรุณาเลือกไฟล์รูปภาพเท่านั้น', 'error');
+      return;
+    }
+
+    if (isHeic(file)) {
+      if (typeof heic2any !== 'function') {
+        setStatus('ไม่สามารถโหลดตัวแปลงไฟล์ HEIC ได้ (ต้องเชื่อมต่ออินเทอร์เน็ต) กรุณาลองใหม่หรือใช้ไฟล์ JPG/PNG แทน', 'error');
+        return;
+      }
+      setStatus('กำลังแปลงไฟล์ HEIC...', null);
+      try {
+        const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+        const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+        loadImageFromBlob(jpegBlob);
+      } catch (err) {
+        setStatus('แปลงไฟล์ HEIC ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตหรือใช้ไฟล์ JPG/PNG แทน', 'error');
+      }
+      return;
+    }
+
+    loadImageFromBlob(file);
+  }
+
+  fileInput.addEventListener('change', function (e) {
+    const file = e.target.files && e.target.files[0];
+    handleFile(file);
+  });
+
+  function getCanvasCoords(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  }
+
+  canvas.addEventListener('click', function (e) {
+    if (!img) return;
+    const { x, y } = getCanvasCoords(e);
+    points.push({ x, y });
+    redraw();
+  });
+
+  canvas.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    if (!img || points.length === 0) return;
+    const { x, y } = getCanvasCoords(e);
+
+    let nearestIdx = 0;
+    let nearestDist = Infinity;
+    points.forEach((p, i) => {
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestIdx = i;
+      }
+    });
+
+    points.splice(nearestIdx, 1);
+    redraw();
+  });
+
+  undoBtn.addEventListener('click', function () {
+    if (points.length === 0) return;
+    points.pop();
+    redraw();
+  });
+
+  resetBtn.addEventListener('click', function () {
+    points = [];
+    redraw();
+  });
+})();
+</script>
+
+</body>
+</html>
