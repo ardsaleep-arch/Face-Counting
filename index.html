@@ -183,14 +183,15 @@
       ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
   }
 
-  function drawDateStamp() {
+  function drawStampBox() {
     if (!loadedAt) return;
-    const text = formatStamp(loadedAt);
+    const lines = ['จำนวนใบหน้า: ' + points.length, formatStamp(loadedAt)];
     const paddingX = 10, paddingY = 6;
+    const lineHeight = 20;
     ctx.font = 'bold 16px sans-serif';
-    const textWidth = ctx.measureText(text).width;
+    const textWidth = Math.max(...lines.map(l => ctx.measureText(l).width));
     const boxW = textWidth + paddingX * 2;
-    const boxH = 16 + paddingY * 2;
+    const boxH = lineHeight * lines.length + paddingY * 2;
     const x = canvas.width - boxW - 12;
     const y = canvas.height - boxH - 12;
 
@@ -200,7 +201,9 @@
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(text, x + paddingX, y + paddingY);
+    lines.forEach((line, i) => {
+      ctx.fillText(line, x + paddingX, y + paddingY + i * lineHeight);
+    });
   }
 
   function redraw() {
@@ -224,7 +227,7 @@
       ctx.fillText(String(i + 1), p.x, p.y);
     });
 
-    drawDateStamp();
+    drawStampBox();
     updateCount();
   }
 
@@ -336,19 +339,48 @@
     redraw();
   });
 
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus('ส่งออกรูปภาพสำเร็จ', 'ok');
+  }
+
   exportBtn.addEventListener('click', function () {
     if (!img) return;
     const stamp = loadedAt || new Date();
     const filename = 'face-count-' + stamp.getFullYear() + pad(stamp.getMonth() + 1) + pad(stamp.getDate()) +
       '-' + pad(stamp.getHours()) + pad(stamp.getMinutes()) + pad(stamp.getSeconds()) + '.png';
 
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setStatus('ส่งออกรูปภาพสำเร็จ', 'ok');
+    canvas.toBlob(async function (blob) {
+      if (!blob) {
+        setStatus('ไม่สามารถสร้างไฟล์ภาพได้', 'error');
+        return;
+      }
+
+      const file = new File([blob], filename, { type: 'image/png' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: filename });
+          setStatus('ส่งออกรูปภาพสำเร็จ', 'ok');
+          return;
+        } catch (err) {
+          if (err && err.name === 'AbortError') {
+            setStatus('', null);
+            return;
+          }
+          // ตกไปใช้วิธี fallback ด้านล่าง
+        }
+      }
+
+      downloadBlob(blob, filename);
+    }, 'image/png');
   });
 })();
 </script>
